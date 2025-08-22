@@ -50,5 +50,4 @@ jobs:
           password: ${{ secrets.ONPREM_SSH_PASSWORD }}
           port: ${{ secrets.ONPREM_SSH_PORT }}
           script: |
-            pkill -f 'java -jar' || true #우아하게 종료할 수 있도록 gracefull shutdown 추가
-            nohup java -jar /home/${{ secrets.ONPREM_USER }}/soop/infra/backend/New-Project-BE/build/libs/NewProject-0.0.1-SNAPSHOT.jar --server.port=8080 > app.log 2>&1 & #애플리케이션에서 로거가 추가 되면 삭제
+            systemctl restart springboot.service
