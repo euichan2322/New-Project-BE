@@ -50,4 +50,4 @@ jobs:
           password: ${{ secrets.ONPREM_SSH_PASSWORD }}
           port: ${{ secrets.ONPREM_SSH_PORT }}
           script: |
-            systemctl restart springboot.service
+            sudo systemctl restart springboot.service
