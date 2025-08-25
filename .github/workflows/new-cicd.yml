@@ -22,25 +22,30 @@ jobs:
         id: start-time
         run: echo "start_time=$(date -u +%s)" >> $GITHUB_OUTPUT
 
-      # Slack 배포 시작 알림 (정교화)
+      # Slack 빌드 시작 알림
       - name: Send Slack start message
         run: |
           BRANCH="${GITHUB_REF#refs/heads/}"
           SHORT_COMMIT="${GITHUB_SHA::7}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/new-project:${{ github.sha }}"
+          COMMIT_TIMESTAMP=$(date -d "${{ github.event.head_commit.timestamp }}" +%s)
+          BUILD_START_TIMESTAMP=$(date +%s)
           PAYLOAD=$(cat <<EOF
           {
             "attachments": [
               { 
                 "color": "#36a64f",
-                "pretext": ":rocket: Dev 배포 시작",
+                "pretext": ":rocket: 백엔드 Dev stage 빌드 시작",
                 "fields": [
-                  { "title": "Repository", "value": "${{ github.repository }}", "short": true },
-                  { "title": "Branch", "value": "$BRANCH", "short": true },
-                  { "title": "Commit", "value": "<$RUN_URL|$SHORT_COMMIT>", "short": true },
+                  { "title": "레포", "value": "${{ github.repository }}", "short": true },
+                  { "title": "브랜치", "value": "$BRANCH", "short": true },
+                  { "title": "담당자", "value": "<@U07PZVCA3LN>, <@U07QK8UB2HX>, <@U07QVC2UW48>" },
+                  { "title": "커밋해시", "value": "<$RUN_URL|$SHORT_COMMIT>", "short": true },
                   { "title": "Triggered by", "value": "${{ github.actor }}", "short": true },
-                  { "title": "Image tag", "value": "$IMAGE", "short": false }
+                  { "title": "이미지 태그", "value": "$IMAGE", "short": false },
+                  { "title": "푸시된 시간", "value": "<!date^${COMMIT_TIMESTAMP}^{date_short_pretty} {time_secs}|${{ github.event.head_commit.timestamp }}>", "short": false },
+                  { "title": "빌드 시작 시간", "value": "<!date^${BUILD_START_TIMESTAMP}^{date_short_pretty} {time_secs}|시작됨>", "short": false }
                 ],
                 "footer": "Workflow",
                 "ts": $(date +%s)
