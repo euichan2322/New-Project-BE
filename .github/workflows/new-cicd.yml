@@ -15,6 +15,8 @@ jobs:
       image_digest: ${{ steps.build-image.outputs.digest }}
       image_tag: ${{ github.sha }}
       start_time: ${{ steps.start-time.outputs.start_time }}
+      build_duration: ${{ steps.record-build-duration.outputs.build_duration }}
+      build_end_time: ${{ steps.record-build-duration.outputs.build_end_time }}
 
     steps:
 
@@ -114,6 +116,15 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: false
 
+      - name: Record build end and duration
+        id: record-build-duration
+        run: |
+          BUILD_START=${{ steps.start-time.outputs.start_time }}
+          BUILD_END=$(date -u +%s)
+          BUILD_DURATION=$((BUILD_END - BUILD_START))
+          echo "build_end_time=$BUILD_END" >> $GITHUB_OUTPUT
+          echo "build_duration=$BUILD_DURATION" >> $GITHUB_OUTPUT
+
   # CD        
   deploy:
     name: Deploy to Server
@@ -121,6 +132,9 @@ jobs:
     needs: build-and-push
 
     steps:
+      - name: Record deploy start time
+        id: deploy-start
+        run: echo "deploy_start_time=$(date -u +%s)" >> $GITHUB_OUTPUT
 
       # 배포 스크립트 실행
       - name: Deploy to Raspberry Pi
@@ -134,25 +148,62 @@ jobs:
             docker pull ${{ secrets.DOCKERHUB_USERNAME }}/new-project:${{ github.sha }}
             docker stop new-project-container || true
             docker rm new-project-container || true
-            # To Do. Graceful shut down
             docker run -d --name new-project-container --env-file ${{ secrets.ENV_FILE_PATH }} -p 8080:8080 --network="host" ${{ secrets.DOCKERHUB_USERNAME }}/new-project:${{ github.sha }}
             docker image prune
+
+      - name: Record deploy end and duration
+        id: record-deploy-duration
+        run: |
+          DEPLOY_START=${{ steps.deploy-start.outputs.deploy_start_time }}
+          DEPLOY_END=$(date -u +%s)
+          DEPLOY_DURATION=$((DEPLOY_END - DEPLOY_START))
+          echo "deploy_end_time=$DEPLOY_END" >> $GITHUB_OUTPUT
+          echo "deploy_duration=$DEPLOY_DURATION" >> $GITHUB_OUTPUT
 
       # Slack 배포 완료 알림 (성공)
       - name: Send Slack completion message
         if: success()
         env:
-          START_TIME: ${{ needs.build-and-push.outputs.start_time }}
+          BUILD_START_TIME: ${{ needs.build-and-push.outputs.start_time }}
+          BUILD_END_TIME: ${{ needs.build-and-push.outputs.build_end_time }}
+          BUILD_DURATION: ${{ needs.build-and-push.outputs.build_duration }}
+          DEPLOY_START_TIME: ${{ steps.deploy-start.outputs.deploy_start_time }}
+          DEPLOY_END_TIME: ${{ steps.record-deploy-duration.outputs.deploy_end_time }}
+          DEPLOY_DURATION: ${{ steps.record-deploy-duration.outputs.deploy_duration }}
         run: |
-          END_TIME=$(date -u +%s)
-          DURATION=$((END_TIME - START_TIME))
-          MIN=$((DURATION/60))
-          SEC=$((DURATION%60))
+          # Total from build start to now
+          NOW=$(date -u +%s)
+          TOTAL_SEC=$((NOW - BUILD_START_TIME))
+          TOTAL_MIN=$((TOTAL_SEC/60))
+          TOTAL_REM=$((TOTAL_SEC%60))
+
+          # Build
+          BUILD_SEC=${BUILD_DURATION:-0}
+          BUILD_MIN=$((BUILD_SEC/60))
+          BUILD_REM=$((BUILD_SEC%60))
+
+          # Deploy
+          DEPLOY_SEC=${DEPLOY_DURATION:-0}
+          DEPLOY_MIN=$((DEPLOY_SEC/60))
+          DEPLOY_REM=$((DEPLOY_SEC%60))
+
+          # Timestamps (fallback to 0 -> show human UTC time)
+          BUILD_START_HUMAN=${BUILD_START_TIME:-0}
+          BUILD_END_HUMAN=${BUILD_END_TIME:-0}
+          DEPLOY_START_HUMAN=${DEPLOY_START_TIME:-0}
+          DEPLOY_END_HUMAN=${DEPLOY_END_TIME:-0}
+
+          BUILD_START_DATE="<!date^${BUILD_START_HUMAN}^{date_short_pretty} {time_secs}|$(date -u -d @${BUILD_START_HUMAN} '+%Y-%m-%d %H:%M:%S')>"
+          BUILD_END_DATE="<!date^${BUILD_END_HUMAN}^{date_short_pretty} {time_secs}|$(date -u -d @${BUILD_END_HUMAN} '+%Y-%m-%d %H:%M:%S')>"
+          DEPLOY_START_DATE="<!date^${DEPLOY_START_HUMAN}^{date_short_pretty} {time_secs}|$(date -u -d @${DEPLOY_START_HUMAN} '+%Y-%m-%d %H:%M:%S')>"
+          DEPLOY_END_DATE="<!date^${DEPLOY_END_HUMAN}^{date_short_pretty} {time_secs}|$(date -u -d @${DEPLOY_END_HUMAN} '+%Y-%m-%d %H:%M:%S')>"
+
           BRANCH="${GITHUB_REF#refs/heads/}"
           SHORT_COMMIT="${GITHUB_SHA::7}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/new-project:${{ github.sha }}"
           DIGEST="${{ needs.build-and-push.outputs.image_digest }}"
+
           PAYLOAD=$(cat <<EOF
           {
             "attachments": [
@@ -163,7 +214,13 @@ jobs:
                   { "title": "Repository", "value": "${{ github.repository }}", "short": true },
                   { "title": "Branch", "value": "$BRANCH", "short": true },
                   { "title": "Commit", "value": "<$RUN_URL|$SHORT_COMMIT>", "short": true },
-                  { "title": "Duration", "value": "${MIN}m ${SEC}s", "short": true },
+                  { "title": "빌드 시작 시간", "value": "$BUILD_START_TIME_HUMAN", "short": true },
+                  { "title": "빌드 완료 시간", "value": "$BUILD_END_DATE", "short": true },
+                  { "title": "빌드 시간", "value": "${BUILD_MIN}m ${BUILD_REM}s", "short": true },
+                  { "title": "배포 시작 시간", "value": "$DEPLOY_START_DATE", "short": true },
+                  { "title": "배포 완료 시간", "value": "$DEPLOY_END_DATE", "short": true },
+                  { "title": "배포 시간", "value": "${DEPLOY_MIN}m ${DEPLOY_REM}s", "short": true },
+                  { "title": "총 걸린 시간", "value": "${TOTAL_MIN}m ${TOTAL_REM}s", "short": true },
                   { "title": "Image", "value": "$IMAGE", "short": false },
                   { "title": "Image digest", "value": "$DIGEST", "short": false }
                 ],
@@ -203,3 +260,12 @@ jobs:
           EOF
           )
           curl -s -X POST -H 'Content-type: application/json' --data "$PAYLOAD" ${{ secrets.SLACK_WEBHOOK_URL }}    
+
+# To do
+# - 배포 후 health check 설정, 롤백
+# - 무중단 배포(Graceful shut down)
+# - 슬랙 커스텀 메시지
+# - 실행과 무관한 파일이 변경되면(ex .gitignore) build 하지 않기.
+# - 메세지가 너무 많이 남지 않도록, 알림 수정 or 그룹화 하도록 하기.
+# - 코드에 시간 관련된 변수들이 많아서 매우 더러움;; 어떻게 분리할지 생각해봐야할거 같아요.
+#   - 변수가 많아서 더러움 vs 수식을 필요한 줄에서 수행해서 읽기 어려움
