@@ -14,8 +14,43 @@ jobs:
     outputs:
       image_digest: ${{ steps.build-image.outputs.digest }}
       image_tag: ${{ github.sha }}
+      start_time: ${{ steps.start-time.outputs.start_time }}
 
     steps:
+
+      - name: Record start time
+        id: start-time
+        run: echo "start_time=$(date -u +%s)" >> $GITHUB_OUTPUT
+
+      # Slack 배포 시작 알림 (정교화)
+      - name: Send Slack start message
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          SHORT_COMMIT="${GITHUB_SHA::7}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/new-project:${{ github.sha }}"
+          PAYLOAD=$(cat <<EOF
+          {
+            "attachments": [
+              { 
+                "color": "#36a64f",
+                "pretext": ":rocket: Dev 배포 시작",
+                "fields": [
+                  { "title": "Repository", "value": "${{ github.repository }}", "short": true },
+                  { "title": "Branch", "value": "$BRANCH", "short": true },
+                  { "title": "Commit", "value": "<$RUN_URL|$SHORT_COMMIT>", "short": true },
+                  { "title": "Triggered by", "value": "${{ github.actor }}", "short": true },
+                  { "title": "Image tag", "value": "$IMAGE", "short": false }
+                ],
+                "footer": "Workflow",
+                "ts": $(date +%s)
+              }
+            ]
+          }
+          EOF
+          )
+          curl -s -X POST -H 'Content-type: application/json' --data "$PAYLOAD" ${{ secrets.SLACK_WEBHOOK_URL }}
+
       # 소스 코드 체크아웃
       - name: Checkout code
         uses: actions/checkout@v4
@@ -81,12 +116,6 @@ jobs:
     needs: build-and-push
 
     steps:
-      # Slack 배포 시작 알림
-      - name: Send Slack start message
-        run: |
-          curl -X POST -H 'Content-type: application/json' \
-          --data '{"text":"✅ dev 브랜치 배포가 시작되었습니다!"}' \
-          ${{ secrets.SLACK_WEBHOOK_URL }}
 
       # 배포 스크립트 실행
       - name: Deploy to Raspberry Pi
@@ -104,9 +133,68 @@ jobs:
             docker run -d --name new-project-container --env-file ${{ secrets.ENV_FILE_PATH }} -p 8080:8080 --network="host" ${{ secrets.DOCKERHUB_USERNAME }}/new-project:${{ github.sha }}
             docker image prune
 
-      # Slack 배포 완료 알림
+      # Slack 배포 완료 알림 (성공)
       - name: Send Slack completion message
+        if: success()
+        env:
+          START_TIME: ${{ needs.build-and-push.outputs.start_time }}
         run: |
-          curl -X POST -H 'Content-type: application/json' \
-          --data '{"text":"✅ 배포가 성공적으로 완료되었습니다!"}' \
-          ${{ secrets.SLACK_WEBHOOK_URL }}
+          END_TIME=$(date -u +%s)
+          DURATION=$((END_TIME - START_TIME))
+          MIN=$((DURATION/60))
+          SEC=$((DURATION%60))
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          SHORT_COMMIT="${GITHUB_SHA::7}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/new-project:${{ github.sha }}"
+          DIGEST="${{ needs.build-and-push.outputs.image_digest }}"
+          PAYLOAD=$(cat <<EOF
+          {
+            "attachments": [
+              {
+                "color": "#36a64f",
+                "title": ":white_check_mark: 배포 성공",
+                "fields": [
+                  { "title": "Repository", "value": "${{ github.repository }}", "short": true },
+                  { "title": "Branch", "value": "$BRANCH", "short": true },
+                  { "title": "Commit", "value": "<$RUN_URL|$SHORT_COMMIT>", "short": true },
+                  { "title": "Duration", "value": "${MIN}m ${SEC}s", "short": true },
+                  { "title": "Image", "value": "$IMAGE", "short": false },
+                  { "title": "Image digest", "value": "$DIGEST", "short": false }
+                ],
+                "footer": "View run",
+                "footer_icon": "https://github.githubassets.com/favicon.ico",
+                "ts": $(date +%s)
+              }
+            ]
+          }
+          EOF
+          )
+          curl -s -X POST -H 'Content-type: application/json' --data "$PAYLOAD" ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      # Slack 배포 실패 알림
+      - name: Send Slack failure message
+        if: failure()
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          SHORT_COMMIT="${GITHUB_SHA::7}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          PAYLOAD=$(cat <<EOF
+          {
+            "attachments": [
+              {
+                "color": "#ff0000",
+                "title": ":x: 배포 실패",
+                "fields": [
+                  { "title": "Repository", "value": "${{ github.repository }}", "short": true },
+                  { "title": "Branch", "value": "$BRANCH", "short": true },
+                  { "title": "Commit", "value": "<$RUN_URL|$SHORT_COMMIT>", "short": true }
+                ],
+                "footer": "View run for logs",
+                "ts": $(date +%s)
+              }
+            ]
+          }
+          EOF
+          )
+          curl -s -X POST -H 'Content-type: application/json' --data "$PAYLOAD" ${{ secrets.SLACK_WEBHOOK_URL }}    
