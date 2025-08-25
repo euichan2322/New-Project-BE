@@ -211,10 +211,10 @@ jobs:
                 "color": "#36a64f",
                 "title": ":white_check_mark: 배포 성공",
                 "fields": [
-                  { "title": "Repository", "value": "${{ github.repository }}", "short": true },
+                  { "title": "Repository", "value": "JNU-econovation/New-Project-BE", "short": true },
                   { "title": "Branch", "value": "$BRANCH", "short": true },
                   { "title": "Commit", "value": "<$RUN_URL|$SHORT_COMMIT>", "short": true },
-                  { "title": "빌드 시작 시간", "value": "$BUILD_START_TIME_HUMAN", "short": true },
+                  { "title": "빌드 시작 시간", "value": "$BUILD_START_DATE", "short": true },
                   { "title": "빌드 완료 시간", "value": "$BUILD_END_DATE", "short": true },
                   { "title": "빌드 시간", "value": "${BUILD_MIN}m ${BUILD_REM}s", "short": true },
                   { "title": "배포 시작 시간", "value": "$DEPLOY_START_DATE", "short": true },
@@ -269,3 +269,4 @@ jobs:
 # - 메세지가 너무 많이 남지 않도록, 알림 수정 or 그룹화 하도록 하기.
 # - 코드에 시간 관련된 변수들이 많아서 매우 더러움;; 어떻게 분리할지 생각해봐야할거 같아요.
 #   - 변수가 많아서 더러움 vs 수식을 필요한 줄에서 수행해서 읽기 어려움
+# - 레포 이름, RUN URL 변경하기
